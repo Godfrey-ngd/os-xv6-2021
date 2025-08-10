@@ -407,3 +407,6 @@ myapi.key:
 
 
 .PHONY: handin tarball tarball-pref clean grade handin-check
+
+# silence false positive from GCC for user/sh.c
+user/sh.o: CFLAGS += -Wno-error=infinite-recursion
