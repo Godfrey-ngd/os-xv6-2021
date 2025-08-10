@@ -1,3 +1,5 @@
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
+
 // Shell.
 
 #include "kernel/types.h"

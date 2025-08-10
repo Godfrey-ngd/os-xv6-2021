@@ -9,11 +9,6 @@
 #include "riscv.h"
 #include "defs.h"
 
-void freerange(void *pa_start, void *pa_end);
-
-extern char end[]; // first address after kernel.
-                   // defined by kernel.ld.
-
 struct run {
   struct run *next;
 };
@@ -22,6 +17,24 @@ struct {
   struct spinlock lock;
   struct run *freelist;
 } kmem;
+
+void freerange(void *pa_start, void *pa_end);
+
+extern char end[]; // first address after kernel.
+                   // defined by kernel.ld.
+
+uint64
+kfreemem(void)
+{
+  uint64 cnt = 0;
+  acquire(&kmem.lock);
+  for (struct run *r = kmem.freelist; r; r = r->next)
+    cnt++;
+  release(&kmem.lock);
+  return cnt * PGSIZE;
+}
+
+
 
 void
 kinit()
