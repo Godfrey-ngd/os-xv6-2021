@@ -1,8 +1,8 @@
 #include "types.h"
 #include "riscv.h"
-#include "param.h"
 #include "defs.h"
 #include "date.h"
+#include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
@@ -46,7 +46,6 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
@@ -58,7 +57,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
-
+  backtrace();
 
   if(argint(0, &n) < 0)
     return -1;
@@ -74,49 +73,6 @@ sys_sleep(void)
   release(&tickslock);
   return 0;
 }
-
-
-#ifdef LAB_PGTBL
-extern pte_t *walk(pagetable_t, uint64, int);
-int
-sys_pgaccess(void)
-{
-  // lab pgtbl: your code here.
-  uint64 srcva, st;
-  int len;
-  uint64 buf = 0;
-  struct proc *p = myproc();
-
-  acquire(&p->lock);
-
-  argaddr(0, &srcva);
-  argint(1, &len);
-  argaddr(2, &st);
-  if ((len > 64) || (len < 1))
-    return -1;
-  pte_t *pte;
-  for (int i = 0; i < len; i++)
-  {
-    pte = walk(p->pagetable, srcva + i * PGSIZE, 0);
-    if(pte == 0){
-      return -1;
-    }
-    if((*pte & PTE_V) == 0){
-      return -1;
-    }
-    if((*pte & PTE_U) == 0){
-      return -1;
-    }
-    if(*pte & PTE_A){
-      *pte = *pte & ~PTE_A;
-      buf |= (1 << i);
-    }
-  }
-  release(&p->lock);
-  copyout(p->pagetable, st, (char *)&buf, ((len -1) / 8) + 1);
-  return 0;
-}
-#endif
 
 uint64
 sys_kill(void)
@@ -140,3 +96,28 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_sigalarm(void)
+{
+	int ticks;
+	uint64 handler;
+	struct proc *p = myproc();
+	if(argint(0, &ticks) < 0 || argaddr(1, &handler) < 0)
+	return -1;
+	p->alarminterval = ticks;
+	p->alarmhandler = (void (*)())handler;
+	p->alarmticks = 0;
+	return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  p->sigreturned = 1;
+  *(p->trapframe) = p->alarmtrapframe;
+  usertrapret();
+  return 0;
+}
+
