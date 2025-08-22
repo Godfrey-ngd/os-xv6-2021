@@ -7,8 +7,6 @@
 #include "spinlock.h"
 #include "proc.h"
 
-void cpytrapframe(struct trapframe*, struct trapframe*);
-
 uint64
 sys_exit(void)
 {
@@ -59,6 +57,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
+  backtrace();
 
   if(argint(0, &n) < 0)
     return -1;
@@ -72,7 +71,6 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
-  backtrace();
   return 0;
 }
 
@@ -102,25 +100,24 @@ sys_uptime(void)
 uint64
 sys_sigalarm(void)
 {
-  int interval;
-  uint64 handler;
-  // 要求时间间隔非负
-  if (argint(0, &interval) < 0)
-    return -1;
-  if (argaddr(1, &handler) < 0)
-    return -1;
-  struct proc* proc = myproc();
-  proc->alarm_interval = interval;
-  proc->alarm_handler = (void (*)(void))handler;
-
-  return 0;
+	int ticks;
+	uint64 handler;
+	struct proc *p = myproc();
+	if(argint(0, &ticks) < 0 || argaddr(1, &handler) < 0)
+	return -1;
+	p->alarminterval = ticks;
+	p->alarmhandler = (void (*)())handler;
+	p->alarmticks = 0;
+	return 0;
 }
 
 uint64
 sys_sigreturn(void)
 {
-  struct proc* p = myproc();
-  cpytrapframe(p->trapframe, p->saved_trapframe);//中断帧信息恢复
-  p->alarm_handling = 0;// 重置过去时钟数,中途会更新 sigalarm() 的调用参数, 这样之前记录的过去时钟数便失效了, 应该重新计数.
+  struct proc *p = myproc();
+  p->sigreturned = 1;
+  *(p->trapframe) = p->alarmtrapframe;
+  usertrapret();
   return 0;
 }
+
