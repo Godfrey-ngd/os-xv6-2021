@@ -24,8 +24,6 @@ struct spinlock e1000_lock;
 // called by pci_init().
 // xregs is the memory address at which the
 // e1000's registers are mapped.
-//可配置 E1000 从 RAM 中读取要传输的数据包，并将接收到的数据包写入 RAM。
-//这种技术称为 DMA（直接内存访问），指的是 E1000 硬件直接将数据包写入/读出 RAM。
 void
 e1000_init(uint32 *xregs)
 {
@@ -52,7 +50,7 @@ e1000_init(uint32 *xregs)
     panic("e1000");
   regs[E1000_TDLEN] = sizeof(tx_ring);
   regs[E1000_TDH] = regs[E1000_TDT] = 0;
-  
+
   // [E1000 14.4] Receive initialization
   memset(rx_ring, 0, sizeof(rx_ring));
   for (i = 0; i < RX_RING_SIZE; i++) {
@@ -87,7 +85,7 @@ e1000_init(uint32 *xregs)
     E1000_RCTL_BAM |                 // enable broadcast
     E1000_RCTL_SZ_2048 |             // 2048-byte rx buffers
     E1000_RCTL_SECRC;                // strip CRC
-  
+
   // ask e1000 for receive interrupts.
   regs[E1000_RDTR] = 0; // interrupt after every received packet (no timer)
   regs[E1000_RADV] = 0; // interrupt after every packet (no timer)
@@ -99,65 +97,108 @@ e1000_transmit(struct mbuf *m)
 {
   //
   // Your code here.
-  //
-  // the mbuf contains an ethernet frame; program it into
-  // the TX descriptor ring so that the e1000 sends it. Stash
-  // a pointer so that it can be freed after sending.
-  //
   acquire(&e1000_lock);
-  // 查询ring里下一个packet的下标
-  int idx = regs[E1000_TDT];
-
-  if ((tx_ring[idx].status & E1000_TXD_STAT_DD) == 0) {
-    // 之前的传输还没有完成
+  //printf("e1000_transmit: called mbuf=%p\n",m);
+  uint32 idx = regs[E1000_TDT];
+  if (tx_ring[idx].status != E1000_TXD_STAT_DD)
+  {
+    printf("e1000_transmit: tx queue full\n");
+    // __sync_synchronize();
     release(&e1000_lock);
     return -1;
+  } else {
+    if (tx_mbufs[idx] != 0)
+    {
+      mbuffree(tx_mbufs[idx]);
+    }
+    tx_ring[idx].addr = (uint64) m->head;
+    tx_ring[idx].length = (uint16) m->len;
+    tx_ring[idx].cso = 0;
+    tx_ring[idx].css = 0;
+    tx_ring[idx].cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+    tx_mbufs[idx] = m;
+    regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
   }
-
-  // 释放上一个包的内存
-  if (tx_mbufs[idx])
-    mbuffree(tx_mbufs[idx]);
-
-  // 把这个新的网络包的pointer塞到ring这个下标位置
-  tx_mbufs[idx] = m;
-  tx_ring[idx].length = m->len;
-  tx_ring[idx].addr = (uint64) m->head;
-  tx_ring[idx].cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
-  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
-
+  // __sync_synchronize();
   release(&e1000_lock);
-  
   return 0;
+
+  // acquire(&e1000_lock);
+  // uint reg_tdt = regs[E1000_TDT];
+
+  // // If the previous buf has not been sent,return error.
+  // if((tx_ring[reg_tdt].status & E1000_TXD_STAT_DD) == 0){
+  //     return -1;
+  // }
+
+  // // free the old buffer
+  // if(tx_mbufs[reg_tdt] != 0)
+  //   mbuffree(tx_mbufs[reg_tdt]);
+
+  // tx_mbufs[reg_tdt] = m;
+  // tx_ring[reg_tdt].length = m->len;
+  // tx_ring[reg_tdt].addr = (uint64)(m->head);
+  // tx_ring[reg_tdt].cmd = 9;
+
+  // regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  // release(&e1000_lock);
+  // return 0;
 }
 
-
+extern void net_rx(struct mbuf *);
 static void
 e1000_recv(void)
 {
   //
   // Your code here.
-  //
-  // Check for packets that have arrived from the e1000
-  // Create and deliver an mbuf for each packet (using net_rx()).
-  //
-  while (1) {
-    // 把所有到达的packet向上层递交
-    int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
-    if ((rx_ring[idx].status & E1000_RXD_STAT_DD) == 0) {
-      // 没有新包了
-      return;
-    }
-    rx_mbufs[idx]->len = rx_ring[idx].length;
-    // 向上层network stack传输
-    net_rx(rx_mbufs[idx]);
-    // 把这个下标清空 放置一个空包
-    rx_mbufs[idx] = mbufalloc(0);
-    rx_ring[idx].status = 0;
-    rx_ring[idx].addr = (uint64)rx_mbufs[idx]->head;
+  uint32 idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  struct rx_desc* dest = &rx_ring[idx];
+  while (rx_ring[idx].status & E1000_RXD_STAT_DD)
+  {
+    acquire(&e1000_lock);
+    struct mbuf *buf = rx_mbufs[idx];
+    mbufput(buf, dest->length);
+    if (!(rx_mbufs[idx] = mbufalloc(0)))
+      panic("mbuf alloc failed");
+    dest->addr = (uint64)rx_mbufs[idx]->head;
+    dest->status = 0;
     regs[E1000_RDT] = idx;
+    // __sync_synchronize();
+    release(&e1000_lock);
+    net_rx(buf);
+    idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    dest = &rx_ring[idx];
   }
-  
+  // uint reg_rdt = regs[E1000_RDT];
+  // int i = (reg_rdt + 1)%RX_RING_SIZE;
+
+  // while(rx_ring[i].status & E1000_RXD_STAT_DD){
+  //     rx_mbufs[i]->len = rx_ring[i].length;
+  //     net_rx(rx_mbufs[i]);
+  //     if((rx_mbufs[i] = mbufalloc(0)) == 0)
+  //         panic("e1000");
+  //     rx_ring[i].addr = (uint64)rx_mbufs[i]->head;
+  //     rx_ring[i].status = 0;
+  //     i = (i + 1) % RX_RING_SIZE;
+  // }
+
+  // if(i == 0)
+  //     i = RX_RING_SIZE;
+  // regs[E1000_RDT] = (i - 1) % RX_RING_SIZE;
+
+  // uint32 tail = regs[E1000_RDT];
+  // int i = (tail+1)%RX_RING_SIZE;
+  // while((rx_ring[i].status & 1) == E1000_RXD_STAT_DD){
+  //   rx_mbufs[i]->len = rx_ring[i].length;
+  //   net_rx(rx_mbufs[i]);
+  //   rx_mbufs[i] = mbufalloc(0) ;
+  //   rx_ring[i].addr = (uint64)rx_mbufs[i]->head;
+  //   rx_ring[i].status = 0;
+  //   i = (i+1)%RX_RING_SIZE;
+  // }
+  // regs[E1000_RDT] = i-1;
 }
+
 
 void
 e1000_intr(void)
