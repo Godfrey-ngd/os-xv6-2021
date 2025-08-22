@@ -29,6 +29,45 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+
+void cpytrapframe(struct trapframe* dst, struct trapframe* src) {
+  dst->kernel_hartid = src->kernel_hartid;
+  dst->kernel_satp = src->kernel_satp;
+  dst->kernel_sp = src->kernel_sp;
+  dst->kernel_trap = src->kernel_trap;
+  dst->a0 = src->a0;
+  dst->a1 = src->a1;
+  dst->a2= src->a2;
+  dst->a3 = src->a3;
+  dst->a4 = src->a4;
+  dst->a5 = src->a5;
+  dst->a6 = src->a6;
+  dst->a7 = src->a7;
+  dst->epc = src->epc;
+  dst->ra = src->ra;
+  dst->sp = src->sp;
+  dst->gp = src->gp;
+  dst->tp = src->tp;
+  dst->t0 = src->t0;
+  dst->t1 = src->t1;
+  dst->t2 = src->t2;
+  dst->s0 = src->s0;
+  dst->s1 = src->s1;
+  dst->s2 = src->s2;
+  dst->s3 = src->s3;
+  dst->s4 = src->s4;
+  dst->s5 = src->s5;
+  dst->s6 = src->s6;
+  dst->s7 = src->s7;
+  dst->s8 = src->s8;
+  dst->s9 = src->s9;
+  dst->s10 = src->s10;
+  dst->s11 = src->s11;
+  dst->t3 = src->t3;
+  dst->t4 = src->t4;
+  dst->t5 = src->t5;
+  dst->t6 = src->t6;
+}
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -46,10 +85,10 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
-
+  
   // save user program counter.
   p->trapframe->epc = r_sepc();
-
+  
   if(r_scause() == 8){
     // system call
 
@@ -65,8 +104,23 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } else if((which_dev = devintr()) != 0){//页表已经切换为内核页表
+  //handler 是用户空间下的函数虚拟地址, 因此不能直接调用
+  //将 p->trapframe->epc = (uint64)p->alarm_handler,达到了执行定时函数的目的.
     // ok
+     if (which_dev == 2) {
+      // timer interrupt
+      p->ticks ++;
+      if (p->alarm_interval != 0 && p->ticks % p->alarm_interval == 0) {
+        if (p->alarm_handling == 0) {
+          p->alarm_handling = 1;
+          // save origin trapframe
+          cpytrapframe(p->saved_trapframe, p->trapframe);
+          // if arrival time interval, set return address to alarm_handler
+          p->trapframe->epc = (uint64)p->alarm_handler;//返回到用户空间时, 程序计数器为alarm_handler定时函数的地址
+        }
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -78,21 +132,7 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
-  {
-    p->alarmticks += 1;
-    if ((p->alarmticks >= p->alarminterval) && (p->alarminterval > 0))
-    {
-      p->alarmticks = 0;
-      if (p->sigreturned == 1)
-      {
-        p->alarmtrapframe = *(p->trapframe);
-        p->trapframe->epc = (uint64)p->alarmhandler;
-        p->sigreturned = 0;
-        usertrapret();
-      }
-    }
     yield();
-  }
 
   usertrapret();
 }
@@ -122,7 +162,7 @@ usertrapret(void)
 
   // set up the registers that trampoline.S's sret will use
   // to get to user space.
-
+  
   // set S Previous Privilege mode to User.
   unsigned long x = r_sstatus();
   x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
@@ -135,7 +175,7 @@ usertrapret(void)
   // tell trampoline.S the user page table to switch to.
   uint64 satp = MAKE_SATP(p->pagetable);
 
-  // jump to trampoline.S at the top of memory, which
+  // jump to trampoline.S at the top of memory, which 
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
   uint64 fn = TRAMPOLINE + (userret - trampoline);
@@ -144,14 +184,14 @@ usertrapret(void)
 
 // interrupts and exceptions from kernel code go here via kernelvec,
 // on whatever the current kernel stack is.
-void
+void 
 kerneltrap()
 {
   int which_dev = 0;
   uint64 sepc = r_sepc();
   uint64 sstatus = r_sstatus();
   uint64 scause = r_scause();
-
+  
   if((sstatus & SSTATUS_SPP) == 0)
     panic("kerneltrap: not from supervisor mode");
   if(intr_get() != 0)
@@ -221,7 +261,7 @@ devintr()
     if(cpuid() == 0){
       clockintr();
     }
-
+    
     // acknowledge the software interrupt by clearing
     // the SSIP bit in sip.
     w_sip(r_sip() & ~2);

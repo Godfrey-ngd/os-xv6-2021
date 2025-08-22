@@ -105,10 +105,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  // 用户页中警报处理函数的虚拟地址
 
-  int alarminterval; // sys_sigalarm() alarm interval in ticks
-  int alarmticks; // sys_sigalarm() alarm interval in ticks
-  void (*alarmhandler)(); // sys_sigalarm() pointer to the alarm handler
-  struct trapframe alarmtrapframe; // for saving registers
-  int sigreturned;
+  int alarm_interval;       // every alarm_interval call alarm handler
+  void (*alarm_handler)();     // alarm handler
+  int ticks;                   // timer ticks
+  struct trapframe *saved_trapframe; //保存寄存器，以便在返回中断代码时重新存储。  
+  int alarm_handling;          // if non-zero, alarm handler is being exec表示警报处理程序是否返回
+
 };

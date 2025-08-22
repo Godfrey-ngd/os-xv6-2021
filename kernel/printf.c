@@ -121,8 +121,8 @@ panic(char *s)
   printf("panic: ");
   printf(s);
   printf("\n");
-  backtrace();
   panicked = 1; // freeze uart output from other CPUs
+  backtrace();
   for(;;)
     ;
 }
@@ -134,12 +134,15 @@ printfinit(void)
   pr.locking = 1;
 }
 
-void
-backtrace(void)
+
+void backtrace(void)
 {
-  uint64 fp_address = r_fp();
-  while(fp_address != PGROUNDDOWN(fp_address)) {
-    printf("%p\n", *(uint64*)(fp_address-8));
-    fp_address = *(uint64*)(fp_address - 16);
+  printf("backtrace:\n");
+  uint64 fp = r_fp();//读取当前帧指针（frame pointer）的值，将这个值存储在 fp_address 变量
+  while (fp < PGROUNDUP(fp)) {//PGROUNDDOWN(fp) 设置循环终止条件
+    printf("%p\n", *(uint64*)(fp-8));  //输出当前栈帧中保存的返回地址
+    //ISC-V 的调用约定中，返回地址保存在调用者的栈帧中，相对于帧指针的偏移量是 -8。
+    //*(uint64*)(fp_address-8) 是一个指针运算，它将返回地址的值读取并以十六进制格式打印出来。
+    fp = *(uint64*)(fp - 16);//更新帧指针 fp_address，以便继续遍历下一个栈帧
   }
 }
