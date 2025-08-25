@@ -11,6 +11,7 @@ entryother
 initcode
 initcode.out
 kernelmemfs
+mkfs
 kernel/kernel
 user/usys.S
 .gdbinit
@@ -21,5 +22,3 @@ xv6.out*
 submissions/
 ph
 barrier
-/lab-*.json
-.DS_Store
