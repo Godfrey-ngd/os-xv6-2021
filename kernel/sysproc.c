@@ -1,15 +1,11 @@
 #include "types.h"
-#include "param.h"
-#include "date.h"
-#include "spinlock.h"
-#include "sleeplock.h"
-#include "fs.h"
-#include "memlayout.h"
 #include "riscv.h"
 #include "defs.h"
+#include "date.h"
+#include "param.h"
+#include "memlayout.h"
+#include "spinlock.h"
 #include "proc.h"
-#include "fcntl.h"
-#include "file.h"
 
 uint64
 sys_exit(void)

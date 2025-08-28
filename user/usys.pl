@@ -36,5 +36,4 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
-entry("mmap");      # lab10
-entry("munmap");    # lab10
+entry("symlink");
