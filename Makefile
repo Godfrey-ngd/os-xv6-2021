@@ -3,9 +3,6 @@
 # (e.g., LAB=util).  Run make grade to test solution with the lab's
 # grade script (e.g., grade-lab-util).
 
-# To generate a candidate student repository for a lab, run e.g.
-#   ./make-lab util
-
 -include conf/lab.mk
 
 K=kernel
@@ -47,12 +44,7 @@ OBJS_KCSAN += \
 	$K/kcsan.o
 endif
 
-ifeq ($(LAB),pgtbl)
-OBJS += \
-	$K/vmcopyin.o
-endif
-
-ifeq ($(LAB),$(filter $(LAB), pgtbl lock))
+ifeq ($(LAB),$(filter $(LAB), lock))
 OBJS += \
 	$K/stats.o\
 	$K/sprintf.o
@@ -149,7 +141,7 @@ tags: $(OBJS) _init
 
 ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
 
-ifeq ($(LAB),$(filter $(LAB), pgtbl lock))
+ifeq ($(LAB),$(filter $(LAB), lock))
 ULIB += $U/statistics.o
 endif
 
@@ -200,7 +192,7 @@ UPROGS=\
 
 
 
-ifeq ($(LAB),$(filter $(LAB), pgtbl lock))
+ifeq ($(LAB),$(filter $(LAB), lock))
 UPROGS += \
 	$U/_stats
 endif
@@ -237,6 +229,11 @@ ph: notxv6/ph.c
 
 barrier: notxv6/barrier.c
 	gcc -o barrier -g -O2 $(XCFLAGS) notxv6/barrier.c -pthread
+endif
+
+ifeq ($(LAB),pgtbl)
+UPROGS += \
+	$U/_pgtbltest
 endif
 
 ifeq ($(LAB),lock)
@@ -344,7 +341,7 @@ grade:
 ##
 
 
-WEBSUB := https://6828.scripts.mit.edu/2020/handin.py
+WEBSUB := https://6828.scripts.mit.edu/2021/handin.py
 
 handin: tarball-pref myapi.key
 	@SUF=$(LAB); \
@@ -376,7 +373,7 @@ handin-check:
 		test "$$r" = y; \
 	fi
 
-UPSTREAM := $(shell git remote -v | grep -m 1 "xv6-labs-2020" | awk '{split($$0,a," "); print a[1]}')
+UPSTREAM := $(shell git remote -v | grep -m 1 "xv6-labs-2021" | awk '{split($$0,a," "); print a[1]}')
 
 tarball: handin-check
 	git archive --format=tar HEAD | gzip > lab-$(LAB)-handin.tar.gz

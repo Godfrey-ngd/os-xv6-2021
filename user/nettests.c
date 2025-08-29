@@ -68,9 +68,14 @@ encode_qname(char *qn, char *host)
 
 // Decode a DNS name
 static void
-decode_qname(char *qn)
+decode_qname(char *qn, int max)
 {
-  while(*qn != '\0') {
+  char *qnMax = qn + max;
+  while(1){
+    if(qn >= qnMax){
+      printf("invalid DNS reply\n");
+      exit(1);
+    }
     int l = *qn;
     if(l == 0)
       break;
@@ -119,13 +124,20 @@ dns_rep(uint8 *ibuf, int cc)
   char *qname = 0;
   int record = 0;
 
-  if(!hdr->qr) {
+  if(cc < sizeof(struct dns)){
+    printf("DNS reply too short\n");
     exit(1);
-    printf("Not a DNS response for %d\n", ntohs(hdr->id));
   }
 
-  if(hdr->id != htons(6828))
+  if(!hdr->qr) {
+    printf("Not a DNS reply for %d\n", ntohs(hdr->id));
+    exit(1);
+  }
+
+  if(hdr->id != htons(6828)){
     printf("DNS wrong id: %d\n", ntohs(hdr->id));
+    exit(1);
+  }
   
   if(hdr->rcode != 0) {
     printf("DNS rcode error: %x\n", hdr->rcode);
@@ -142,25 +154,30 @@ dns_rep(uint8 *ibuf, int cc)
   for(int i =0; i < ntohs(hdr->qdcount); i++) {
     char *qn = (char *) (ibuf+len);
     qname = qn;
-    decode_qname(qn);
+    decode_qname(qn, cc - len);
     len += strlen(qn)+1;
     len += sizeof(struct dns_question);
   }
 
   for(int i = 0; i < ntohs(hdr->ancount); i++) {
-    char *qn = (char *) (ibuf+len);
+    if(len >= cc){
+      printf("invalid DNS reply\n");
+      exit(1);
+    }
     
+    char *qn = (char *) (ibuf+len);
+
     if((int) qn[0] > 63) {  // compression?
       qn = (char *)(ibuf+qn[1]);
       len += 2;
     } else {
-      decode_qname(qn);
+      decode_qname(qn, cc - len);
       len += strlen(qn)+1;
     }
       
     struct dns_data *d = (struct dns_data *) (ibuf+len);
     len += sizeof(struct dns_data);
-    // printf("type %d ttl %d len %d\n", ntohs(d->type), ntohl(d->ttl), ntohs(d->len));
+    //printf("type %d ttl %d len %d\n", ntohs(d->type), ntohl(d->ttl), ntohs(d->len));
     if(ntohs(d->type) == ARECORD && ntohs(d->len) == 4) {
       record = 1;
       printf("DNS arecord for %s is ", qname ? qname : "" );
@@ -172,6 +189,24 @@ dns_rep(uint8 *ibuf, int cc)
       }
       len += 4;
     }
+  }
+
+  // needed for DNS servers with EDNS support
+  for(int i = 0; i < ntohs(hdr->arcount); i++) {
+    char *qn = (char *) (ibuf+len);
+    if(*qn != 0) {
+      printf("invalid name for EDNS\n");
+      exit(1);
+    }
+    len += 1;
+
+    struct dns_data *d = (struct dns_data *) (ibuf+len);
+    len += sizeof(struct dns_data);
+    if(ntohs(d->type) != 41) {
+      printf("invalid type for EDNS\n");
+      exit(1);
+    }
+    len += ntohs(d->len);
   }
 
   if(len != cc) {
@@ -228,16 +263,16 @@ main(int argc, char *argv[])
   uint16 dport = NET_TESTS_PORT;
 
   printf("nettests running on port %d\n", dport);
-
+  
   printf("testing ping: ");
   ping(2000, dport, 1);
   printf("OK\n");
-
+  
   printf("testing single-process pings: ");
   for (i = 0; i < 100; i++)
     ping(2000, dport, 1);
   printf("OK\n");
-
+  
   printf("testing multi-process pings: ");
   for (i = 0; i < 10; i++){
     int pid = fork();
